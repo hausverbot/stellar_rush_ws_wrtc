@@ -6,6 +6,7 @@ import uuid
 
 peers = {}
 
+
 async def handler(websocket):
     peer_uuid = None
 
@@ -14,9 +15,9 @@ async def handler(websocket):
         try:
             data = json.loads(message)
 
-            #print(message)
+            print(message)
             message_type = data.get("type")
-            
+
             if message_type == "get_peers":
                 peers_list = list(peers.keys())
                 await websocket.send(json.dumps({"type": "peer_list", "peers": peers_list}))
@@ -52,14 +53,15 @@ async def handler(websocket):
             print(f"Fehler beim Dekodieren der Nachricht: {e}")
         except Exception as e:
             print(f"Fehler beim Verarbeiten der Nachricht: {e}")
-    
+
     print(f'Client disconnected: {websocket.remote_address}')
     del peers[peer_uuid]
-    
-    #for peer in peers.values():
+
+    # for peer in peers.values():
     #    await peer.send(json.dumps({"type": "peer_list", "peers": list(peers.keys())}))
 
-#start_server = websockets.serve(handler, "localhost", 8765)
+
 start_server = websockets.serve(handler, "localhost", 8765)
+# start_server = websockets.serve(handler, "192.168.178.76", 8765)
 asyncio.get_event_loop().run_until_complete(start_server)
 asyncio.get_event_loop().run_forever()
