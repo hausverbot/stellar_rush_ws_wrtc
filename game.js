@@ -1,3 +1,6 @@
+let requests = {};
+let statistics = [];
+
 function generateUUIDv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0; // Zufällige Zahl zwischen 0 und 15
@@ -58,6 +61,7 @@ GameData.stars_group = {};
 GameData.bombs_group = {};
 GameData.cursors = {};
 GameData.platforms = {};
+
 
 
 let game = new Phaser.Game(config);
@@ -128,7 +132,7 @@ function game_init(data){
     //GameData.players = data.players;
 
     $.each(data.players, function(id, player) {
-        console.debug('Spawning player:', player);
+        //console.debug('Spawning player:', player);
         if (id !== GameData.player_id){
             game_spawn_other_player(player.id, GameData.movement.x, GameData.movement.y);
         }
@@ -138,12 +142,6 @@ function game_init(data){
         GameData.movement.player_id = GameData.player_id;
         send_message('movement', GameData.movement)
     }, 33);
-
-    if (GameData.state === GAME_READY) {
-        $('#start_button').attr('disabled', false);
-    } else if (GameData.state === GAME_RUNNING) {
-        $('#start_button').attr('disabled', true);
-    }
 }
 
 function game_star_collected(data){
@@ -165,7 +163,7 @@ function game_all_stars_collected(){
 function game_spawn_stars(stars){
     GameData.stars = {};
     $.each(stars, function(id, star) {
-        console.debug('Spawning star:', star);
+        //console.debug('Spawning star:', star);
         let newStar = GameData.stars_group.create(star.x, star.y, 'star');
         newStar.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
         newStar.star_id = star.id;
@@ -180,7 +178,7 @@ function game_get_star(id){
 
 function game_get_bomb(id){
     let bomb = GameData.bombs[id];
-    console.log(bomb)
+    //console.log(bomb)
     return bomb
 }
 
@@ -192,7 +190,7 @@ function game_spawn_bomb(bomb){
     new_bomb.allowGravity = true;
     new_bomb.bomb_id = bomb.id;
     GameData.bombs[bomb.id] = new_bomb;
-    console.debug('Bomb created:', bomb.id);
+    //console.debug('Bomb created:', bomb.id);
 }
 
 function game_spawn_bombs(bombs){
@@ -208,12 +206,12 @@ function game_destroy_bomb(id){
     let bomb = game_get_bomb(id);
     if (bomb) {
         bomb.destroy();
-        console.debug('Bomb destroyed:', id);
+        //console.debug('Bomb destroyed:', id);
     }
 }
 
 function game_start(data){
-    $('#start_button').attr('disabled', true);
+    game_start_event();
     GameData.round++;
     GameData.round_text.setText('Round: ' + GameData.round);
     console.log('Game started with stars and bombs:', data.payload.stars, data.payload.bombs);
@@ -223,7 +221,7 @@ function game_start(data){
 
 function game_delete_all_stars(){
     $.each(GameData.stars, function(id, star) {
-        console.debug('Deleting star:', id);
+        //console.debug('Deleting star:', id);
         star.disableBody(true, true);
         star.collected = true;
     });
@@ -238,16 +236,16 @@ function game_next_round(data){
 }
 
 function game_over(data){
-    console.debug('Game over');
+    console.debug('GAME OVER!');
 }
 
 function game_bomb_hit(data){
-    if (data.player_id !== GameData.player_id) {
-        let player = game_get_player(data.player_id)
+    if (data.payload.player_id !== GameData.player_id) {
+        let player = game_get_player(data.payload.player_id)
         if (player) {
-            game_kill_player(data.player_id);
+            game_kill_player(data.payload.player_id);
         }
-        game_destroy_bomb(data.bomb_id);
+        game_destroy_bomb(data.payload.bomb_id);
 
     }
 }
@@ -262,6 +260,8 @@ function game_player_movement(data){
                 player.anims.play(data.payload.facing, true);
             }
         }
+    
+        send_message("ack", {}, data.req_id);
     }
 }
 
@@ -360,7 +360,7 @@ function game_server_collect_star(data){
 
         send_message("star_collected", {
             star_id: data.payload.star_id
-        });
+        }, data.req_id);
     }
 }
 
@@ -374,41 +374,12 @@ function game_server_hit_bomb(data){
 
     game_bomb_hit(data);
 
-    if(game_all_stars_collected()){
-
-        let stars = game_server_create_stars();
-        let bombs = game_server_create_bombs();
-
-        let data = {};
-        data.topic = "next_round";
-        data.payload = {};
-        data.payload.stars = stars;
-        data.payload.bombs = bombs;
-
-        send_message("next_round", data.payload);
-
-        game_next_round(data.payload);
-    }else{
-
-        send_message("star_collected", {
-            star_id: data.payload.star_id
-        });
-    }
+    send_message("bomb_hit", {
+        player_id: data.payload.player_id,
+        bomb_id: data.payload.bomb_id,
+    }, data.req_id);
+    
 }
-/*
-function game_server_collect_star(data){
-
-    game_star_collected({
-        star_id: data.payload.star_id
-    });
-    send_message("star_collected", {
-        star_id: data.payload.star_id
-    });
-}
- */
-
-
-
 
 function update() {
     if (GameData.state === GAME_OVER || GameData.alive == false) {
@@ -453,34 +424,75 @@ function hitBomb(player, bomb) {
     bomb.setVelocity(0,0);
 
     player.anims.play('turn');
-    send_message('hit_bomb', { bomb_id: bomb.bomb_id });
+    send_message('hit_bomb', { bomb_id: bomb.bomb_id, player_id: GameData.player_id});
     GameData.alive = false;
+    // Show "Game Over" message for the affected player
+    let gameOverText = GameData.current_scene.add.text(400, 250, '\n YOU\nDIED  ', {
+        fontSize: '64px',
+        fill: '#ff0000',
+        fontFamily: 'Ariel'
+    });
+    gameOverText.setOrigin(0.5, 0.5);  // Center the text on the screen
+
+    setTimeout(() => {
+        gameOverText.destroy();
+    }, 3000); // 3000 ms = 3 seconds
+
     setTimeout(() => {
         player.destroy();
         bomb.destroy();
     }, 3000);
 }
 
+function send_message(topic, payload, req_id = null) {
+    
+    let ruuid = generateUUIDv4();
 
-function send_message(topic, payload) {
+    if(req_id !== null) ruuid = req_id;
+
+    let ts = Date.now();
+
     let json = {
+        'req_id': ruuid,
         'topic': topic,
         'player_id': GameData.player_id,
         'payload': payload
     };
 
-    let message = JSON.stringify(json);
-    game_send_data(json)
+    if (topic === 'collect_star' | topic === 'hit_bomb' | topic === "movement"){
+        requests[ruuid] = ts;
+        //console.log("Requests:", requests);
+    }
 
-    //send_webrtc_message(message);
+    game_send_data(json);
+}
+
+function game_server_handle_response(data){
+    //console.log("Req_ID:", data.req_id);
+    if (data.req_id in requests){
+        let start = requests[data.req_id];
+        //console.log("Start Time:", start);
+        let end = Date.now();
+        let time_delta = end-start;
+        statistics.push(time_delta);
+
+        if(statistics.length >= 100){
+            const sum = statistics.reduce((accumulator, currentValue) => accumulator + currentValue, 0);
+            const average = sum / statistics.length;
+
+            console.log("Statistics:", statistics.toString(), average);
+            statistics = [];
+            requests = {};
+        }
+    }
 }
 
 function game_handle_data(data){
-/*
-    if(data.topic != "movement"){
-        console.debug("Data Received: ", data);
+
+    if(!data.topic === "movement"){    
+        //console.debug("Data Received: ", data);
     }
-*/
+
     if (data.topic === 'init'){
         game_init(data);
     } else if(data.topic === "player_joined"){
@@ -494,7 +506,7 @@ function game_handle_data(data){
     } else if(data.topic === "game_over"){
         game_over(data);
     } else if(data.topic === "player_movement"){
-        game_player_movement(data);
+        //game_player_movement(data);
     } else if(data.topic === "star_collected"){
         game_star_collected(data);
     } else if(data.topic === "bomb_hit"){
@@ -504,9 +516,13 @@ function game_handle_data(data){
     } else if(data.topic == "start"){           // Server mockup
         game_server_start_game(data);
     } else if(data.topic == "collect_star"){    // Server mockup
+        game_server_handle_response(data);
         game_server_collect_star(data);
     } else if(data.topic == "hit_bomb"){        // Server mockup
+        game_server_handle_response(data);
         game_server_hit_bomb(data);
+    } else if(data.topic == "ack"){        // Server mockup
+        game_server_handle_response(data);
     } else{
         console.error("Unknown topic received", data);
     }
